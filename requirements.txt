@@ -1,3 +1,9 @@
 pandas
 numpy
 scikit-learn
+requests
+geopandas
+folium
+streamlit
+streamlit-folium
+pytest
