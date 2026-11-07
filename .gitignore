@@ -3,3 +3,11 @@
 __pycache__/
 .DS_Store
 
+# python bytecode
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# pulled data (re-creatable; can be large)
+data/raw/
+data/snapshots/
