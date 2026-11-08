@@ -1,0 +1,12 @@
+{
+  "mode": "strict",
+  "run_utc": "2026-11-08 06:26",
+  "snapshots": 8,
+  "held_out_readings": 232,
+  "coverage_at_95": 0.927,
+  "coverage_at_68": 0.772,
+  "coverage_at_95_after_calibration_later_half": 0.948,
+  "sd_scale": 1.199,
+  "spearman_error_vs_gp_sd": -0.11,
+  "spearman_error_vs_distance": -0.19
+}

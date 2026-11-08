@@ -1,0 +1,20 @@
+# SensorGap dashboard theme. Light is locked on purpose: the basemap tiles and the
+# reliability-curve PNG are both light, so a dark page would frame them in white boxes.
+[theme]
+base = "light"
+primaryColor = "#4a1486"              # deepest step of the "How unsure" purple ramp; white text passes AA
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f2f7"
+textColor = "#1d1a24"
+borderColor = "#e2dee9"
+linkColor = "#4a1486"
+font = "'IBM Plex Sans':https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+codeFont = "'IBM Plex Mono':https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+headingFontSizes = ["2rem", "1.375rem", "1.0625rem", "1rem", "0.875rem", "0.75rem"]
+headingFontWeights = [600, 600, 600, 500, 500, 500]
+metricValueFontSize = "1.875rem"
+metricValueFontWeight = 500
+baseRadius = "small"
+paddingTop = "1.5rem"
+paddingBottom = "2rem"
+dataframeHeaderBackgroundColor = "#f4f2f7"

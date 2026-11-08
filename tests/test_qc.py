@@ -3,7 +3,6 @@ from sensorgap.ingest import barkjohn_correct, barkjohn_qc
 
 
 def test_correction_known_value():
-    # 0.524*10 - 0.0862*50 + 5.75 = 6.68
     assert abs(barkjohn_correct(pd.Series([10.0]), pd.Series([50.0]))[0] - 6.68) < 1e-9
 
 
@@ -16,10 +15,8 @@ def test_qc_keeps_agreeing_channels():
 
 
 def test_qc_drops_disagreeing_channels():
-    # 30 vs 2: differ by 28 ug/m3 and ~175%
     assert not barkjohn_qc(pd.Series([30.0]), pd.Series([2.0]))[0]
 
 
 def test_qc_keeps_small_absolute_gap_at_low_levels():
-    # 0.2 vs 0.0 is 200% apart but only 0.2 ug/m3: keep
     assert barkjohn_qc(pd.Series([0.2]), pd.Series([0.0]))[0]
