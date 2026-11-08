@@ -8,6 +8,10 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 
-# pulled data (re-creatable; can be large)
+# pulled data
 data/raw/
 data/snapshots/
+#more data
+outputs/grid_*.csv
+#suggested addition
+.streamlit/secrets.toml
