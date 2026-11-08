@@ -37,19 +37,15 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-# this file lives in <repo>/sensorgap/ingest.py; .env and data/ live at the repo root
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data" / "snapshots"
 RAW = ROOT / "data" / "raw"
 
-# NYC area bounding box (includes some NJ / Nassau edge sensors, which help the model at the borders)
 BBOX = dict(nwlng=-74.26, nwlat=40.92, selng=-73.70, selat=40.49)
 
 PA_URL = "https://api.purpleair.com/v1/sensors"
 PA_FIELDS = "latitude,longitude,last_seen,humidity,pm2.5_cf_1_a,pm2.5_cf_1_b"
 
-# the old azdohv2staticweb blob URL now returns 404; the city's realtime page loads this file instead
-# (long format: SiteName, Operator, starttime, timeofday, Value; starttime is NYC local time)
 CITY_URL = "https://raw.githubusercontent.com/nychealth/nyccas-data/refs/heads/main/portal/view.csv"
 STATION_URL = "https://raw.githubusercontent.com/nychealth/nyccas-data/main/portal/station-new.csv"
 
@@ -58,12 +54,10 @@ AIRNOW_URL = "https://www.airnowapi.org/aq/data/"
 UA = {"User-Agent": "SensorGap-hackathon/0.1 (non-commercial research)"}
 
 
-# ----------------------------------------------------------------------------- helpers
 def load_env():
     env = ROOT / ".env"
     if env.exists():
         b = env.read_bytes()
-        # PowerShell's `>` writes UTF-16; accept that as well as plain UTF-8
         text = b.decode("utf-16") if b[:2] in (b"\xff\xfe", b"\xfe\xff") else b.decode("utf-8-sig")
         for line in text.splitlines():
             line = line.strip()
@@ -76,9 +70,7 @@ def utc_stamp():
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-# ----------------------------------------------------------------------------- PurpleAir
 def barkjohn_qc(a, b):
-    """True where A/B channels agree well enough to trust the reading."""
     diff = (a - b).abs()
     mean = (a + b) / 2
     pct = (diff / mean.where(mean > 0)).fillna(0) * 100
@@ -86,7 +78,6 @@ def barkjohn_qc(a, b):
 
 
 def barkjohn_correct(pa_cf1, rh):
-    """EPA US-wide PurpleAir correction (Barkjohn et al. 2021, Eq. 10). RH in percent."""
     return (0.524 * pa_cf1 - 0.0862 * rh + 5.75).clip(lower=0)
 
 
@@ -119,7 +110,6 @@ def fetch_purpleair(key, max_age_s, stamp):
     return out
 
 
-# ----------------------------------------------------------------------------- NYC city monitors
 def get_city_raw(stamp=None):
     r = requests.get(CITY_URL, headers=UA, timeout=60)
     r.raise_for_status()
@@ -132,7 +122,6 @@ def get_stations():
     r = requests.get(STATION_URL, headers=UA, timeout=60)
     r.raise_for_status()
     st = pd.read_csv(io.BytesIO(r.content))
-    # the "DEC Monitor Average" row has no SiteID and no real location: it can't go on a map
     return st[st["SiteID"].notna() & (st["loc_col"] != "DEC_Avg")]
 
 
@@ -149,17 +138,14 @@ def fetch_city(stamp):
     tcol = find_time_col(raw)
     t = pd.to_datetime(raw[tcol], errors="coerce")
     if t.dt.tz is None:
-        # the city feed's timestamps have no zone and are NYC local time
         t = t.dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT")
     raw[tcol] = t.dt.tz_convert("UTC")
 
     wide_cols = [c for c in st["loc_col"] if c in raw.columns]
     if wide_cols:
-        # wide format: one column per site, named by loc_col
         long = raw.melt(id_vars=[tcol], value_vars=wide_cols, var_name="loc_col", value_name="pm25")
         long = long.merge(st, on="loc_col")
     else:
-        # long format: a site id column + a value column
         id_col = next((c for c in raw.columns
                        if c.lower() in ("siteid", "site_id", "site", "loc_col", "sitename")), None)
         val_col = next((c for c in raw.columns if any(k in c.lower() for k in ("value", "pm25", "pm2.5", "pm"))
@@ -186,7 +172,6 @@ def fetch_city(stamp):
     return out
 
 
-# ----------------------------------------------------------------------------- AirNow (state DEC monitors)
 def fetch_airnow(key, stamp):
     now = pd.Timestamp.now(tz="UTC").floor("h")
     params = {
@@ -194,10 +179,10 @@ def fetch_airnow(key, stamp):
         "endDate": now.strftime("%Y-%m-%dT%H"),
         "parameters": "PM25",
         "BBOX": f"{BBOX['nwlng']},{BBOX['selat']},{BBOX['selng']},{BBOX['nwlat']}",
-        "dataType": "C",            # concentrations
+        "dataType": "C",
         "format": "application/json",
-        "verbose": 1,               # adds site name + AQS code
-        "monitorType": 0,           # permanent regulatory monitors only
+        "verbose": 1,
+        "monitorType": 0,
         "API_KEY": key,
     }
     r = requests.get(AIRNOW_URL, params=params, headers=UA, timeout=60)
@@ -208,7 +193,7 @@ def fetch_airnow(key, stamp):
         print("AirNow: 0 readings returned")
         return df
     df["UTC"] = pd.to_datetime(df["UTC"], utc=True)
-    df = df[df["Value"] >= 0]  # AirNow uses -999 for missing
+    df = df[df["Value"] >= 0]
     site = df["FullAQSCode"] if "FullAQSCode" in df else df["SiteName"]
     df = df.assign(site=site).sort_values("UTC").groupby("site").tail(1)
     out = pd.DataFrame({
@@ -224,7 +209,6 @@ def fetch_airnow(key, stamp):
     return out
 
 
-# ----------------------------------------------------------------------------- main
 def snapshot(key, max_age_s, airnow_key=None):
     DATA.mkdir(parents=True, exist_ok=True)
     RAW.mkdir(parents=True, exist_ok=True)
@@ -237,7 +221,7 @@ def snapshot(key, max_age_s, airnow_key=None):
             part = fn()
             if part is not None and len(part):
                 parts.append(part)
-        except Exception as e:  # one source failing shouldn't kill the snapshot
+        except Exception as e:
             print(f"WARNING: {name} failed: {e}")
     if not parts:
         print("No data this round.")

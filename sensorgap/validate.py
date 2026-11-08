@@ -46,9 +46,6 @@ def _dist_km(a_lat, a_lon, b_lat, b_lon):
 
 
 def holdout(hist, noise_sd=None, buffer_km=1.0, strict=False):
-    """noise_sd given: use it as is.
-    noise_sd=None, strict=False: learn noise once per snapshot from all its sensors (fast).
-    noise_sd=None, strict=True: learn noise inside every test from the training sensors only (slow, no leakage)."""
     rows = []
     stamps = sorted(hist["snapshot_utc"].unique())
     for i, (stamp, snap) in enumerate(hist.groupby("snapshot_utc")):
@@ -66,7 +63,6 @@ def holdout(hist, noise_sd=None, buffer_km=1.0, strict=False):
             fold_noise = noise or m.learn_noise(train)
             gp = m.fit(train, noise_sd=fold_noise, restarts=0)
             mean, std = m.predict(gp, [target["lat"]], [target["lon"]])
-            # the held-out value is itself a noisy measurement, so add its own noise to the predictive sd
             pred_sd = float(np.sqrt(std[0] ** 2 + fold_noise["reference"] ** 2))
             rows.append({
                 "snapshot_utc": stamp, "site_id": target["site_id"], "source": target["source"],
@@ -86,7 +82,6 @@ def coverage_table(res):
 
 
 def baseline_comparison(res):
-    """Does the GP's sd track actual error better than plain distance-to-nearest-sensor does?"""
     err = (res["observed"] - res["predicted"]).abs()
     return {
         "spearman_err_vs_gp_sd": float(err.corr(res["pred_sd"], method="spearman")),
@@ -95,8 +90,6 @@ def baseline_comparison(res):
 
 
 def dedupe_snapshots(hist, min_gap_min=30):
-    """Snapshots taken within `min_gap_min` of each other (manual test runs) count as one hour:
-    keep the one with the most readings (latest on a tie), so the same hour isn't counted twice."""
     counts = hist.groupby("snapshot_utc").size()
     times = pd.to_datetime(pd.Series(counts.index), format="%Y%m%dT%H%M%SZ").sort_values()
     clusters, cur = [], []
@@ -115,12 +108,10 @@ def dedupe_snapshots(hist, min_gap_min=30):
 
 
 def calibrate_scale(res, level=0.95):
-    """How much to widen the bands so `level` of held-out readings fall inside (split-conformal style)."""
     return max(float(np.quantile(res["z"].abs(), level)) / Z_FOR[level], 1.0)
 
 
 def time_split_calibration(res):
-    """Fit the widening factor on the earlier half of snapshots, test it on the later half."""
     stamps = sorted(res["snapshot_utc"].unique())
     if len(stamps) < 2:
         return None
@@ -190,7 +181,6 @@ def main():
     variants = {"guessed noise (ref 1, low-cost 3)": dict(m.NOISE_SD), learned_label: None}
 
     tables, out = {}, ROOT / "outputs"
-    # a partial run must never replace the numbers the map and the pitch rely on
     tag = f"_last{args.last}" if args.last else ""
     out.mkdir(exist_ok=True)
     for label, noise in variants.items():

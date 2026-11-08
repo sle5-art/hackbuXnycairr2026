@@ -20,12 +20,12 @@ import requests
 from app.dashboard import ROOT
 
 DAY = "2023-06-07"
-PEAK_UTC = datetime(2023, 6, 7, 18, tzinfo=timezone.utc)  # 2 pm New York time, citywide peak
-HOURS = 12  # NowCast window
+PEAK_UTC = datetime(2023, 6, 7, 18, tzinfo=timezone.utc)
+HOURS = 12
 DIR = ROOT / "data" / "static" / "replay_20230607"
 NYCCAS = "https://raw.githubusercontent.com/nychealth/nyccas-data/main/hist/csv"
 AIRNOW = "https://s3-us-west-1.amazonaws.com//files.airnowtech.org/airnow/{d:%Y}/{d:%Y%m%d}/{name}"
-BOX = dict(lat=(40.49, 40.92), lon=(-74.26, -73.70))  # same box as sensorgap.ingest
+BOX = dict(lat=(40.49, 40.92), lon=(-74.26, -73.70))
 COLS = ["snapshot_utc", "source", "site_id", "lat", "lon", "pm25", "obs_time_utc", "noise_class"]
 
 
@@ -70,7 +70,7 @@ def airnow_hours(hours):
 def main():
     hours = [PEAK_UTC - timedelta(hours=h) for h in reversed(range(HOURS))]
     df = in_box(pd.concat([city_hours(hours), airnow_hours(hours)]))
-    df = df[df["pm25"] >= 0]  # AirNow marks missing values as negative
+    df = df[df["pm25"] >= 0]
     DIR.mkdir(parents=True, exist_ok=True)
     for t, g in df.groupby("t"):
         stamp = f"{t:%Y%m%dT%H%M%SZ}"

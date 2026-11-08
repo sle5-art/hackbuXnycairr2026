@@ -29,16 +29,15 @@ from shapely.ops import unary_union
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs"
 
-# EPA AQI colours, upper edge of each PM2.5 category in ug/m3 (2024 breakpoints, same as sensorgap/labels.py)
 AQI = [(9.0, "#00e400", "Good"), (35.4, "#ffff00", "Moderate"), (55.4, "#ff7e00", "Unhealthy for Sensitive Groups"),
        (125.4, "#ff0000", "Unhealthy"), (225.4, "#8f3f97", "Very Unhealthy"), (500.0, "#7e0023", "Hazardous")]
 BOROUGH = {"005": "Bronx", "047": "Brooklyn", "061": "Manhattan", "081": "Queens", "085": "Staten Island"}
 SOURCE = {"nyc_dohmh": "NYC Health monitor", "airnow": "State (DEC) monitor via AirNow", "purpleair": "PurpleAir"}
-SITE_NAMES = {"36061NY09929": "Midtown West"}  # names the city feed doesn't carry
-PX = 8  # image pixels per grid cell (room for the "not enough data" stripes)
+SITE_NAMES = {"36061NY09929": "Midtown West"}
+PX = 8
 UNIT = "µg/m³"
 PIN = "#c51b7d"
-LAYERS = {"How unsure": "unsure", "AQI label": "aqi"}  # layer_image also draws "pm25" (kept for slides/tests)
+LAYERS = {"How unsure": "unsure", "AQI label": "aqi"}
 
 
 def latest(pattern, folder=OUT):
@@ -47,7 +46,6 @@ def latest(pattern, folder=OUT):
 
 
 def load():
-    """Everything the map shows, as plain data. Missing files come back as None."""
     def read(path, fn):
         return fn(path) if path and path.exists() else None
 
@@ -67,7 +65,6 @@ def land_of(boroughs):
 
 
 def to_raster(labels, land):
-    """Grid columns -> 2-D arrays (row 0 = north) plus a land mask and the image bounds."""
     lats, lons = np.sort(labels["lat"].unique()), np.sort(labels["lon"].unique())
     def grid(col):
         return labels.pivot(index="lat", columns="lon", values=col).reindex(index=lats, columns=lons).values[::-1]
@@ -86,7 +83,6 @@ def hex_to_rgb(h):
 
 
 def paint(colors, g, stripes, alpha=170):
-    """colors: (rows, cols, 3) per cell -> RGBA image; water transparent; optional grey stripes on unsure cells."""
     img = np.repeat(np.repeat(colors, PX, 0), PX, 1)
     a = np.repeat(np.repeat(np.where(g["land"], alpha, 0), PX, 0), PX, 1)
     if stripes:
@@ -95,38 +91,32 @@ def paint(colors, g, stripes, alpha=170):
     return np.dstack([img, a]).astype(np.uint8)
 
 
-UNSURE_STEPS = [5.0, 10.0, 25.0, 50.0, 100.0, 250.0]  # fixed tops for the "how unsure" scale (ug/m3)
+UNSURE_STEPS = [5.0, 10.0, 25.0, 50.0, 100.0, 250.0]
 
 
 def ramp(values, land, colors, caption, vmax):
-    """Colour ramp on a FIXED scale from 0 to vmax. Stretching to each hour's own min and max made a 0.5 ug/m3
-    difference look as dramatic as a 50 ug/m3 one; with a fixed scale, a pale map means a calm, sure hour."""
     cmap = bcm.LinearColormap(colors, vmin=0.0, vmax=float(vmax), caption=caption)
     clipped = np.clip(np.nan_to_num(values), 0.0, float(vmax))
     return np.array([[hex_to_rgb(cmap(x)[:7]) for x in row] for row in clipped]), cmap
 
 
 def fixed_top(values, land, steps):
-    """Smallest step that holds every on-land value, so ordinary hours share one scale and only extreme
-    hours (smoke days) move to a bigger one."""
     top = float(np.nanmax(values[land])) if land.any() else 0.0
     return next((s for s in steps if top <= s), steps[-1])
 
 
 def layer_image(g, layer):
-    """Image and legend for one layer: 'unsure' (band half-width), 'pm25' (NowCast value), 'aqi' (category)."""
     if layer == "unsure":
         colors, cmap = ramp(g["halfwidth"], g["land"], ["#f2f0f7", "#9e9ac8", "#3f007d"],
                             f"How unsure: ± half-width of the 95% band ({UNIT})",
                             vmax=fixed_top(g["halfwidth"], g["land"], UNSURE_STEPS))
     elif layer == "pm25":
-        # same tops as the EPA AQI categories: 0-35.4 (Good + Moderate) on a normal day, wider only on bad ones
         colors, cmap = ramp(g["nowcast"], g["land"], ["#fff5eb", "#fd8d3c", "#7f2704"],
                             f"PM2.5, 12-hour NowCast ({UNIT})",
                             vmax=fixed_top(g["nowcast"], g["land"], [u for u, _, _ in AQI[1:]]))
     else:
         idx = np.searchsorted([u for u, _, _ in AQI], np.floor(np.nan_to_num(g["nowcast"]) * 10 + 1e-9) / 10)
-        n = max(3, int(idx[g["land"]].max()) + 1)  # legend shows up to the worst category on the map
+        n = max(3, int(idx[g["land"]].max()) + 1)
         edges = [0.0] + [u for u, _, _ in AQI[:n]]
         cmap = bcm.StepColormap([c for _, c, _ in AQI[:n]], index=edges, vmin=0, vmax=edges[-1],
                                 caption=f"AQI label ({UNIT}) · stripes: not enough data")
@@ -135,14 +125,11 @@ def layer_image(g, layer):
 
 
 def to_web_mercator(img, bounds):
-    """Stretch the image rows to web-Mercator, keeping exact colours. folium's own mercator_project returns floats,
-    which folium then rescales channel by channel, shifting every colour (EPA's maroon came out pink)."""
     out = mercator_transform(img, (bounds[0][0], bounds[1][0]))
     return np.clip(np.rint(out), 0, 255).astype(np.uint8)
 
 
 def biggest_miss(holdout):
-    """Held-out site the map got most wrong on average (by |z|), with its observed range and mean prediction."""
     by = holdout.assign(az=holdout["z"].abs()).groupby("site_id")
     site = by["az"].mean().idxmax()
     rows = holdout[holdout["site_id"] == site]
@@ -151,7 +138,6 @@ def biggest_miss(holdout):
 
 
 def km_between(lat, lon, lats, lons):
-    """Distance in km from one point to many (flat-earth approximation; fine at city scale)."""
     dy = (np.asarray(lats) - lat) * 111.0
     dx = (np.asarray(lons) - lon) * 111.0 * np.cos(np.radians(lat))
     return np.hypot(dx, dy)
@@ -239,7 +225,6 @@ def build_map(d, layer="unsure"):
 
 
 def explain(d, land, lat, lon):
-    """Plain-language readout for a clicked point, or None if it is on water or outside NYC."""
     if not shapely.contains_xy(land, lon, lat):
         return None
     lab = d["labels"]
@@ -290,7 +275,6 @@ def main():
 
 
 def _files_key():
-    # names and modification times of the inputs, so re-running labels/placement/validate shows up on refresh
     files = [latest("labels_*.csv"), OUT / "placement.csv", OUT / "validation_holdout_learned.csv",
              latest("snapshot_*.csv", ROOT / "data" / "snapshots")]
     return tuple((str(f), f.stat().st_mtime) for f in files if f and f.exists())

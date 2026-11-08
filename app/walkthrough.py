@@ -34,7 +34,7 @@ from sensorgap import placement as P
 
 ROOT, OUT = D.ROOT, D.OUT
 SNAPS = ROOT / "data" / "snapshots"
-UNIT = "ug/m3"  # plain ASCII so every Windows terminal shows it
+UNIT = "ug/m3"
 W = 88
 
 pd.set_option("display.width", 160)
@@ -63,7 +63,6 @@ class Show:
 
 
 def nearest(points, sensors):
-    """For each point: distance (km) to the nearest sensor, its id/source, and to the nearest reference monitor."""
     xy_p = M.to_xy_km(points["lat"], points["lon"])
     xy_s = M.to_xy_km(sensors["lat"], sensors["lon"])
     d = np.hypot(xy_p[:, None, 0] - xy_s[None, :, 0], xy_p[:, None, 1] - xy_s[None, :, 1])
@@ -78,7 +77,6 @@ def nearest(points, sensors):
 
 
 def quiet(fn, *a):
-    """Run a module function without its own prints (we narrate instead)."""
     with contextlib.redirect_stdout(io.StringIO()):
         return fn(*a)
 
@@ -92,7 +90,6 @@ def main():
     args = p.parse_args()
     show = Show(args.pause, args.all)
 
-    # 1 -------------------------------------------------------------------------------------------- collect
     show.step("COLLECT the readings",
               "the map is only as good as its inputs, so first: what did we measure, where, and from whom?")
     if args.live:
@@ -117,7 +114,6 @@ def main():
         show.table(snap[["site_id", "source", "noise_class", "lat", "lon", "pm25"]]
                    .sort_values(["noise_class", "pm25"], ascending=[False, False]))
 
-    # 2 -------------------------------------------------------------------------------------------- fit
     show.step("FIT the model (Gaussian process), live",
               "turn ~94 scattered readings into an estimate AND an uncertainty everywhere in the city")
     t0 = time.time()
@@ -131,7 +127,6 @@ def main():
     if show.all:
         show.say(f"Kernel: {gp.kernel_}")
 
-    # 3 -------------------------------------------------------------------------------------------- calibrate
     sd_scale = M.load_sd_scale()
     show.step("CALIBRATE the uncertainty",
               "a band is only useful if it is honest, so we tested it on monitors the model never saw")
@@ -159,7 +154,6 @@ def main():
         if show.all:
             show.table(worst)
 
-    # 4 -------------------------------------------------------------------------------------------- map + labels
     show.step("MAP every 0.5 km square and LABEL it, refusing when unsure",
               "each square gets an estimate +/- a 95% band; we only say 'Good' if the WHOLE band sits inside Good")
     grid = M.predict_grid(gp, sd_scale=sd_scale)
@@ -186,7 +180,6 @@ def main():
         show.say(f"  {n:5d} squares  {name}")
     show.say(f"Confident label on {lab['confident'].mean():.0%} of land; the rest get grey stripes on the map.")
 
-    # 5 -------------------------------------------------------------------------------------------- distances
     show.step("CHECK that uncertainty grows with distance from sensors",
               "the darker purple on the map should be exactly the squares far from any sensor")
     lab = lab.join(nearest(lab, snap))
@@ -205,7 +198,6 @@ def main():
     map_path = OUT / "map_data.csv"
     lab[cols + ["confident", "nearest_sensor"]].to_csv(map_path, index=False)
 
-    # 6 -------------------------------------------------------------------------------------------- placement
     show.step("RECOMMEND 10 new sensor sites, live",
               "put sensors where they cut uncertainty most for adults with asthma (CDC PLACES 2025 x adults)")
     t0 = time.time()
@@ -237,7 +229,6 @@ def main():
         show.say(f"Band half-width after the {summary['k']} sites: highest-asthma quarter of tracts "
                  f"+/-{hi[0]} -> +/-{hi[1]}, all other tracts +/-{lo[0]} -> +/-{lo[1]} {UNIT}")
 
-    # 7 -------------------------------------------------------------------------------------------- one point
     if args.at:
         lat, lon = (float(x) for x in args.at.split(","))
         show.step(f"EXPLAIN one point ({lat}, {lon})", "the same reasoning the map shows when you click")

@@ -15,10 +15,10 @@ import shutil
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import pandas as pd
 
-from app.dashboard import BOROUGH, OUT, PIN, UNIT  # noqa: E402
+from app.dashboard import BOROUGH, OUT, PIN, UNIT
 
 SLIDES = OUT / "slides"
 INK, MUTED, GRID = "#1d1a24", "#6b6575", "#e2dee9"
@@ -51,7 +51,6 @@ def placement_table(placement, path):
 
 
 def fairness(summary, path):
-    """Dumbbell: band half-width before -> after, one row per group."""
     groups = [("Highest-asthma quarter of tracts", summary["band_halfwidth_high_asthma_tracts"], PIN),
               ("All other tracts", summary["band_halfwidth_other_tracts"], "#8a8494")]
     fig, ax = plt.subplots(figsize=(8, 2.6), dpi=200)

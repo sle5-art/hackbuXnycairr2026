@@ -32,15 +32,10 @@ ROOT, OUT = D.ROOT, D.OUT
 REPLAY_DIR = ROOT / "data" / "static" / "replay_20230607"
 REPLAY_OUT = OUT / "replay_20230607"
 
-# model.py lets the noise level range 0.1-4 ug/m3, which fits normal days (readings 3-15). At 200-460 ug/m3
-# monitors a few blocks apart disagree by tens of ug/m3, so the range must go higher or the fit breaks (it hits
-# the 4 ug/m3 ceiling, collapses the length scale to the 1 km floor and the bands balloon to +/-230).
-# Tonight's learned noise is identical with either range, so both days use this one.
 SMOKE_NOISE_GRID = [0.1, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]
 
 
 def last_hours(paths, hours=12):
-    """Latest snapshot in each of the last `hours` hours, oldest first."""
     stamped = sorted((L._stamp(p, "snapshot_"), p) for p in paths)
     newest = stamped[-1][0]
     by_lag = {}
@@ -52,7 +47,6 @@ def last_hours(paths, hours=12):
 
 
 def run_day(name, snap_paths, land, tracts, show):
-    """The whole pipeline for one day. Returns headline numbers, the labelled land cells, and the sites."""
     t0 = time.time()
     snaps = [pd.read_csv(p).dropna(subset=["lat", "lon", "pm25"]) for p in snap_paths]
     sd_scale = M.load_sd_scale()
@@ -64,7 +58,6 @@ def run_day(name, snap_paths, land, tracts, show):
         means.append(g["mean"].to_numpy())
         stds.append(g["std"].to_numpy())
     base = g[["lat", "lon"]]
-    # labels.py wants row 0 = the latest hour
     lab = quiet(L.make_labels, base, np.array(means[::-1]), np.array(stds[::-1]))
     on_land = shapely.contains_xy(land, lab["lon"], lab["lat"])
     lab = lab[on_land].copy()
