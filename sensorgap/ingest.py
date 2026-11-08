@@ -5,7 +5,7 @@ SensorGap ingestion: one snapshot of NYC PM2.5 from two sources.
      - QC: keep a reading if channels A and B agree within 5 ug/m3 OR within 61% (Barkjohn et al. 2021)
      - EPA US-wide correction: PM2.5 = 0.524*PA_cf1 - 0.0862*RH + 5.75
   2. NYC DOHMH real-time PM2.5 monitors (NYCCAS, no key)
-     - data:     https://azdohv2staticweb.blob.core.windows.net/$web/nyccas_realtime_DEC.csv (last 7 days)
+     - data:     https://raw.githubusercontent.com/nychealth/nyccas-data/refs/heads/main/portal/view.csv (last 7 days)
      - stations: https://raw.githubusercontent.com/nychealth/nyccas-data/main/portal/station-new.csv
 
   3. AirNow regulatory monitors (state DEC sites), if AIRNOW_KEY is in .env
@@ -48,7 +48,9 @@ BBOX = dict(nwlng=-74.26, nwlat=40.92, selng=-73.70, selat=40.49)
 PA_URL = "https://api.purpleair.com/v1/sensors"
 PA_FIELDS = "latitude,longitude,last_seen,humidity,pm2.5_cf_1_a,pm2.5_cf_1_b"
 
-CITY_URL = "https://azdohv2staticweb.blob.core.windows.net/$web/nyccas_realtime_DEC.csv"
+# the old azdohv2staticweb blob URL now returns 404; the city's realtime page loads this file instead
+# (long format: SiteName, Operator, starttime, timeofday, Value; starttime is NYC local time)
+CITY_URL = "https://raw.githubusercontent.com/nychealth/nyccas-data/refs/heads/main/portal/view.csv"
 STATION_URL = "https://raw.githubusercontent.com/nychealth/nyccas-data/main/portal/station-new.csv"
 
 AIRNOW_URL = "https://www.airnowapi.org/aq/data/"
@@ -145,7 +147,11 @@ def fetch_city(stamp):
     raw = get_city_raw(stamp)
     st = get_stations()
     tcol = find_time_col(raw)
-    raw[tcol] = pd.to_datetime(raw[tcol], utc=True, errors="coerce")
+    t = pd.to_datetime(raw[tcol], errors="coerce")
+    if t.dt.tz is None:
+        # the city feed's timestamps have no zone and are NYC local time
+        t = t.dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT")
+    raw[tcol] = t.dt.tz_convert("UTC")
 
     wide_cols = [c for c in st["loc_col"] if c in raw.columns]
     if wide_cols:
@@ -154,7 +160,8 @@ def fetch_city(stamp):
         long = long.merge(st, on="loc_col")
     else:
         # long format: a site id column + a value column
-        id_col = next((c for c in raw.columns if c.lower() in ("siteid", "site_id", "site", "loc_col")), None)
+        id_col = next((c for c in raw.columns
+                       if c.lower() in ("siteid", "site_id", "site", "loc_col", "sitename")), None)
         val_col = next((c for c in raw.columns if any(k in c.lower() for k in ("value", "pm25", "pm2.5", "pm"))
                         and c != id_col), None)
         if not id_col or not val_col:
