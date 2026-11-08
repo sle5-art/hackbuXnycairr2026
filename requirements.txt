@@ -1,9 +1,10 @@
+requests
 pandas
 numpy
 scikit-learn
-requests
 geopandas
 folium
+matplotlib
 streamlit
 streamlit-folium
 pytest
