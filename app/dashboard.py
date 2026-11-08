@@ -38,7 +38,7 @@ SITE_NAMES = {"36061NY09929": "Midtown West"}  # names the city feed doesn't car
 PX = 8  # image pixels per grid cell (room for the "not enough data" stripes)
 UNIT = "µg/m³"
 PIN = "#c51b7d"
-LAYERS = {"How unsure": "unsure", "PM2.5 estimate": "pm25", "AQI label": "aqi"}
+LAYERS = {"How unsure": "unsure", "AQI label": "aqi"}  # layer_image also draws "pm25" (kept for slides/tests)
 
 
 def latest(pattern, folder=OUT):
@@ -95,20 +95,35 @@ def paint(colors, g, stripes, alpha=170):
     return np.dstack([img, a]).astype(np.uint8)
 
 
-def ramp(values, land, colors, caption):
-    v = values[land]
-    cmap = bcm.LinearColormap(colors, vmin=float(v.min()), vmax=float(v.max()), caption=caption)
-    return np.array([[hex_to_rgb(cmap(x)[:7]) for x in row] for row in np.nan_to_num(values)]), cmap
+UNSURE_STEPS = [5.0, 10.0, 25.0, 50.0, 100.0, 250.0]  # fixed tops for the "how unsure" scale (ug/m3)
+
+
+def ramp(values, land, colors, caption, vmax):
+    """Colour ramp on a FIXED scale from 0 to vmax. Stretching to each hour's own min and max made a 0.5 ug/m3
+    difference look as dramatic as a 50 ug/m3 one; with a fixed scale, a pale map means a calm, sure hour."""
+    cmap = bcm.LinearColormap(colors, vmin=0.0, vmax=float(vmax), caption=caption)
+    clipped = np.clip(np.nan_to_num(values), 0.0, float(vmax))
+    return np.array([[hex_to_rgb(cmap(x)[:7]) for x in row] for row in clipped]), cmap
+
+
+def fixed_top(values, land, steps):
+    """Smallest step that holds every on-land value, so ordinary hours share one scale and only extreme
+    hours (smoke days) move to a bigger one."""
+    top = float(np.nanmax(values[land])) if land.any() else 0.0
+    return next((s for s in steps if top <= s), steps[-1])
 
 
 def layer_image(g, layer):
     """Image and legend for one layer: 'unsure' (band half-width), 'pm25' (NowCast value), 'aqi' (category)."""
     if layer == "unsure":
         colors, cmap = ramp(g["halfwidth"], g["land"], ["#f2f0f7", "#9e9ac8", "#3f007d"],
-                            f"How unsure: ± half-width of the 95% band ({UNIT})")
+                            f"How unsure: ± half-width of the 95% band ({UNIT})",
+                            vmax=fixed_top(g["halfwidth"], g["land"], UNSURE_STEPS))
     elif layer == "pm25":
+        # same tops as the EPA AQI categories: 0-35.4 (Good + Moderate) on a normal day, wider only on bad ones
         colors, cmap = ramp(g["nowcast"], g["land"], ["#fff5eb", "#fd8d3c", "#7f2704"],
-                            f"PM2.5, 12-hour NowCast ({UNIT})")
+                            f"PM2.5, 12-hour NowCast ({UNIT})",
+                            vmax=fixed_top(g["nowcast"], g["land"], [u for u, _, _ in AQI[1:]]))
     else:
         idx = np.searchsorted([u for u, _, _ in AQI], np.floor(np.nan_to_num(g["nowcast"]) * 10 + 1e-9) / 10)
         n = max(3, int(idx[g["land"]].max()) + 1)  # legend shows up to the worst category on the map
@@ -220,7 +235,6 @@ def build_map(d, layer="unsure"):
         fg.add_to(m)
 
     add_key(m)
-    folium.LayerControl(collapsed=False, position="topleft").add_to(m)
     return m
 
 
@@ -240,10 +254,7 @@ def explain(d, land, lat, lon):
     if s is not None:
         km = km_between(c["lat"], c["lon"], s["lat"], s["lon"])
         i = int(np.argmin(km))
-        ref = (s["noise_class"] == "reference").values
-        near_ref = f"; nearest reference monitor {km[ref].min():.1f} km" if ref.any() else ""
-        lines.append(f"Nearest sensor {km[i]:.1f} km away ({SOURCE.get(s['source'].iloc[i], s['source'].iloc[i])})"
-                     f"{near_ref}.")
+        lines.append(f"Nearest sensor {km[i]:.1f} km away ({SOURCE.get(s['source'].iloc[i], s['source'].iloc[i])}).")
     return "  \n".join(lines)
 
 

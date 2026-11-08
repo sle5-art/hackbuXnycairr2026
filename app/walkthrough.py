@@ -9,7 +9,7 @@ Run from the repo root:
     python -m app.walkthrough --live               # pull a fresh snapshot from the 3 feeds first (needs .env keys)
     python -m app.walkthrough --pause              # wait for Enter between steps (for presenting)
     python -m app.walkthrough --at 40.758,-73.992  # also explain one point, like clicking the map
-    python -m app.walkthrough --all                # print every sensor and site, not just the top rows
+    python -m app.walkthrough --all                # also print the full tables (every sensor, square and miss)
 
 Writes (same files as the individual modules):
     outputs/grid_<UTC>.csv, outputs/labels_<UTC>.csv, outputs/placement.csv, outputs/placement_summary.json
@@ -109,12 +109,13 @@ def main():
     by = snap.groupby(["source", "noise_class"])["pm25"].agg(["count", "min", "median", "max"]).round(1)
     show.say("")
     show.table(by.reset_index().rename(columns={"noise_class": "trust"}))
-    show.say("")
-    show.say("PurpleAir readings already passed EPA's A/B check (channels agree within 5 ug/m3 or 61%)")
-    show.say("and EPA's humidity correction: PM2.5 = 0.524*PA - 0.0862*RH + 5.75 (Barkjohn et al. 2021).")
-    show.say("")
-    show.table(snap[["site_id", "source", "noise_class", "lat", "lon", "pm25"]]
-               .sort_values(["noise_class", "pm25"], ascending=[False, False]))
+    if show.all:
+        show.say("")
+        show.say("PurpleAir readings already passed EPA's A/B check (channels agree within 5 ug/m3 or 61%)")
+        show.say("and EPA's humidity correction: PM2.5 = 0.524*PA - 0.0862*RH + 5.75 (Barkjohn et al. 2021).")
+        show.say("")
+        show.table(snap[["site_id", "source", "noise_class", "lat", "lon", "pm25"]]
+                   .sort_values(["noise_class", "pm25"], ascending=[False, False]))
 
     # 2 -------------------------------------------------------------------------------------------- fit
     show.step("FIT the model (Gaussian process), live",
@@ -127,7 +128,8 @@ def main():
              f"reference {gp.noise_sd_['reference']} {UNIT}, PurpleAir {gp.noise_sd_['lowcost']} {UNIT}")
     show.say(f"Learned length scale: {info['length_scale_km']:.2f} km "
              f"(how far a reading stays informative; floor {M.MIN_LENGTH_SCALE_KM} km = typical sensor spacing)")
-    show.say(f"Kernel: {gp.kernel_}")
+    if show.all:
+        show.say(f"Kernel: {gp.kernel_}")
 
     # 3 -------------------------------------------------------------------------------------------- calibrate
     sd_scale = M.load_sd_scale()
@@ -150,24 +152,24 @@ def main():
                                                      mean_abs_z=("az", "mean"))
                  .sort_values("mean_abs_z", ascending=False).round(2).reset_index())
         worst.insert(1, "name", worst["site_id"].map(D.SITE_NAMES).fillna(""))
+        w = worst.iloc[0]
         show.say("")
-        show.say("Biggest misses when hidden (the red ring on the map is the top row):")
-        show.table(worst, rows=5)
+        show.say(f"Biggest miss (the red ring on the map): {w['name'] or w['site_id']} read {w['observed']:.1f}, "
+                 f"the model guessed {w['predicted']:.1f} without it.")
+        if show.all:
+            show.table(worst)
 
-    # 4 -------------------------------------------------------------------------------------------- this hour's map
-    show.step("MAP this hour on a 0.5 km grid",
-              "every square gets an estimate and a 95% band = estimate +/- 1.96 x calibrated standard deviation")
+    # 4 -------------------------------------------------------------------------------------------- map + labels
+    show.step("MAP every 0.5 km square and LABEL it, refusing when unsure",
+              "each square gets an estimate +/- a 95% band; we only say 'Good' if the WHOLE band sits inside Good")
     grid = M.predict_grid(gp, sd_scale=sd_scale)
     grid_path = OUT / snap_path.name.replace("snapshot_", "grid_")
     grid.to_csv(grid_path, index=False)
     hw = (grid["hi95"] - grid["lo95"]) / 2
-    show.say(f"{len(grid)} squares -> {grid_path.relative_to(ROOT)}")
-    show.say(f"Estimate {grid['mean'].min():.1f} to {grid['mean'].max():.1f} {UNIT}; "
-             f"band half-width +/-{hw.min():.2f} (next to sensors) to +/-{hw.max():.2f} (far from all of them)")
-
-    # 5 -------------------------------------------------------------------------------------------- labels
-    show.step("LABEL with NowCast, and refuse when unsure",
-              "AQI isn't defined on single hours; and we only say 'Good' if the WHOLE band sits inside Good")
+    if show.all:
+        show.say(f"{len(grid)} squares -> {grid_path.relative_to(ROOT)}")
+        show.say(f"This hour: estimate {grid['mean'].min():.1f} to {grid['mean'].max():.1f} {UNIT}; "
+                 f"band half-width +/-{hw.min():.2f} (next to sensors) to +/-{hw.max():.2f} (far from all of them)")
     quiet(L.make_missing_grids, 12)
     base, mean, std, newest = L.load_hourly_grids(list(OUT.glob("grid_*.csv")), 12)
     hours = int((~np.isnan(mean[:, 0])).sum())
@@ -177,33 +179,33 @@ def main():
     land = D.land_of(D.load()["boroughs"])
     lab = lab[shapely.contains_xy(land, lab["lon"], lab["lat"])].copy()
     lab["halfwidth"] = ((lab["hi95"] - lab["lo95"]) / 2).round(2)
-    show.say(f"NowCast over {hours} hourly map(s) -> {lab_path.relative_to(ROOT)}")
+    show.say(f"NowCast (EPA's AQI blend of the last 12 hours) over {hours} hourly map(s).")
     show.say(f"EPA 2024 breakpoints: Good 0-9.0, Moderate 9.1-35.4, USG 35.5-55.4 {UNIT}")
-    show.say(f"{len(lab)} squares are on NYC land (water and NJ are dropped using the borough shapes).")
-    counts = lab["label"].value_counts()
-    for name, n in counts.items():
+    show.say(f"{len(lab)} squares on NYC land:")
+    for name, n in lab["label"].value_counts().items():
         show.say(f"  {n:5d} squares  {name}")
     show.say(f"Confident label on {lab['confident'].mean():.0%} of land; the rest get grey stripes on the map.")
 
-    # 6 -------------------------------------------------------------------------------------------- distances
-    show.step("MEASURE how far every square is from a sensor",
-              "uncertainty should grow with distance from sensors; here is the evidence, square by square")
+    # 5 -------------------------------------------------------------------------------------------- distances
+    show.step("CHECK that uncertainty grows with distance from sensors",
+              "the darker purple on the map should be exactly the squares far from any sensor")
     lab = lab.join(nearest(lab, snap))
     cols = ["lat", "lon", "nowcast", "lo95", "hi95", "halfwidth", "label", "nearest_sensor_km",
             "nearest_sensor_source", "nearest_reference_km"]
-    show.say("Least certain squares on land:")
-    show.table(lab.sort_values("halfwidth", ascending=False)[cols], rows=5)
-    show.say("")
-    show.say("Most certain squares on land:")
-    show.table(lab.sort_values("halfwidth")[cols], rows=5)
     rho = lab["halfwidth"].corr(lab["nearest_sensor_km"], method="spearman")
-    show.say("")
-    show.say(f"Rank correlation between band width and distance to nearest sensor: {rho:.2f}")
+    far, near = lab.loc[lab["halfwidth"].idxmax()], lab.loc[lab["halfwidth"].idxmin()]
+    show.say(f"Least sure: ({far['lat']:.3f}, {far['lon']:.3f})  +/-{far['halfwidth']:.2f} {UNIT}, "
+             f"{far['nearest_sensor_km']:.1f} km from the nearest sensor")
+    show.say(f"Most sure:  ({near['lat']:.3f}, {near['lon']:.3f})  +/-{near['halfwidth']:.2f} {UNIT}, "
+             f"{near['nearest_sensor_km']:.1f} km from the nearest sensor")
+    show.say(f"Across all {len(lab)} land squares, band width vs distance: rank correlation {rho:.2f} (1 = perfect)")
+    if show.all:
+        show.say("")
+        show.table(lab.sort_values("halfwidth", ascending=False)[cols])
     map_path = OUT / "map_data.csv"
     lab[cols + ["confident", "nearest_sensor"]].to_csv(map_path, index=False)
-    show.say(f"Every land square, with all of these columns -> {map_path.relative_to(ROOT)}")
 
-    # 7 -------------------------------------------------------------------------------------------- placement
+    # 6 -------------------------------------------------------------------------------------------- placement
     show.step("RECOMMEND 10 new sensor sites, live",
               "put sensors where they cut uncertainty most for adults with asthma (CDC PLACES 2025 x adults)")
     t0 = time.time()
@@ -216,24 +218,26 @@ def main():
     summary = json.loads((OUT / "placement_summary.json").read_text())
     show.say(f"Greedy search over {summary['n_tracts']} census-tract centroids, at least "
              f"{summary['min_spacing_km']:g} km apart, in {time.time() - t0:.1f} s.")
-    show.say("Each pick = the site whose new PurpleAir shrinks asthma-weighted uncertainty most; then repeat.")
+    show.say("Each pick = the site whose new sensor shrinks asthma-weighted uncertainty most; then repeat.")
     sites = sites.assign(borough=sites["tract"].str[2:5].map(D.BOROUGH)).join(nearest(sites, snap))
     here = lab.reset_index(drop=True)
     idx = [int(((here["lat"] - r.lat) ** 2 + (here["lon"] - r.lon) ** 2).idxmin()) for r in sites.itertuples()]
     sites["band_now"] = here.loc[idx, "halfwidth"].to_numpy()
     show.say("")
-    show.table(sites[["rank", "borough", "tract", "lat", "lon", "asthma_pct", "adults", "band_now",
-                      "nearest_sensor_km", "nearest_reference_km", "rank_if_population_only"]]
-               .rename(columns={"rank_if_population_only": "pop_only_rank"}).astype({"pop_only_rank": "string"})
-               .fillna("-"), rows=10)
+    cols = ["rank", "borough", "asthma_pct", "adults", "nearest_sensor_km"]
+    if show.all:
+        cols = ["rank", "borough", "tract", "lat", "lon", "asthma_pct", "adults", "band_now",
+                "nearest_sensor_km", "nearest_reference_km"]
+    show.table(sites[cols], rows=10)
     hi, lo = summary["band_halfwidth_high_asthma_tracts"], summary["band_halfwidth_other_tracts"]
     show.say("")
     show.say(f"Weighting by headcount instead picks {summary['picks_shared_with_population_only']} of the same "
              f"{summary['k']} sites: who you weight by decides where the city looks.")
-    show.say(f"Band half-width after the {summary['k']} sites: highest-asthma quarter of tracts "
-             f"+/-{hi[0]} -> +/-{hi[1]}, all other tracts +/-{lo[0]} -> +/-{lo[1]} {UNIT}")
+    if show.all:
+        show.say(f"Band half-width after the {summary['k']} sites: highest-asthma quarter of tracts "
+                 f"+/-{hi[0]} -> +/-{hi[1]}, all other tracts +/-{lo[0]} -> +/-{lo[1]} {UNIT}")
 
-    # 8 -------------------------------------------------------------------------------------------- one point
+    # 7 -------------------------------------------------------------------------------------------- one point
     if args.at:
         lat, lon = (float(x) for x in args.at.split(","))
         show.step(f"EXPLAIN one point ({lat}, {lon})", "the same reasoning the map shows when you click")

@@ -13,7 +13,9 @@ Two things happen here:
 
 Usage:
     python -m sensorgap.validate                 # normal: noise learned once per hour (fast)
-    python -m sensorgap.validate --last 3        # only the 3 most recent hours (quick check while coding)
+    python -m sensorgap.validate --last 3        # only the 3 most recent hours (quick check while coding);
+                                                 # leaves calibration.json / validation_summary.json untouched
+                                                 # and writes its other files with a _last3 suffix
     python -m sensorgap.validate --strict        # noise re-learned for every hidden monitor (slow, fully clean)
                                                  # -> run this once before presenting
 Outputs:
@@ -170,7 +172,12 @@ def main():
     p.add_argument("--strict", action="store_true",
                    help="re-learn noise levels inside every test, without the hidden monitor (slow, no leakage)")
     p.add_argument("--last", type=int, default=0, help="only use the N most recent snapshots")
+    p.add_argument("--pa-offset", action="store_true",
+                   help="test the hourly PurpleAir offset correction (model.CORRECT_LOWCOST_BIAS) for this run")
     args = p.parse_args()
+    if args.pa_offset:
+        m.CORRECT_LOWCOST_BIAS = True
+        print("PurpleAir offset correction: ON for this run")
 
     hist = dedupe_snapshots(pd.read_csv(args.history))
     if args.last:
@@ -183,6 +190,8 @@ def main():
     variants = {"guessed noise (ref 1, low-cost 3)": dict(m.NOISE_SD), learned_label: None}
 
     tables, out = {}, ROOT / "outputs"
+    # a partial run must never replace the numbers the map and the pitch rely on
+    tag = f"_last{args.last}" if args.last else ""
     out.mkdir(exist_ok=True)
     for label, noise in variants.items():
         res = holdout(hist, noise, args.buffer_km, strict=args.strict and noise is None)
@@ -198,7 +207,7 @@ def main():
         if noise is None:
             print("learned noise (ref, low-cost) -> how often:",
                   res[["noise_ref", "noise_lowcost"]].value_counts().to_dict())
-        res.to_csv(out / f"validation_holdout_{label.split()[0]}.csv", index=False)
+        res.to_csv(out / f"validation_holdout_{label.split()[0]}{tag}.csv", index=False)
         if noise is None:
             learned = res
 
@@ -211,9 +220,12 @@ def main():
                             "test after": after["observed"]}).round(3).to_string(index=False))
         tables["learned + calibrated (later half)"] = after
         k_all = calibrate_scale(learned)
-        (out / "calibration.json").write_text(json.dumps({"sd_scale": round(k_all, 3), "n": len(learned)}))
-        print(f"Saved sd_scale={k_all:.2f} (from all {len(learned)} readings) to outputs/calibration.json; "
-              f"model.py applies it to the map.")
+        if args.last:
+            print(f"sd_scale would be {k_all:.2f}; not saved (--last is a partial run)")
+        else:
+            (out / "calibration.json").write_text(json.dumps({"sd_scale": round(k_all, 3), "n": len(learned)}))
+            print(f"Saved sd_scale={k_all:.2f} (from all {len(learned)} readings) to outputs/calibration.json; "
+                  f"model.py applies it to the map.")
 
     cov = coverage_table(learned).set_index("expected")["observed"]
     cmp_ = baseline_comparison(learned)
@@ -229,11 +241,15 @@ def main():
         "spearman_error_vs_gp_sd": round(cmp_["spearman_err_vs_gp_sd"], 2),
         "spearman_error_vs_distance": round(cmp_["spearman_err_vs_distance"], 2),
     }
-    (out / "validation_summary.json").write_text(json.dumps(summary, indent=2))
-    print(f"Saved headline numbers to outputs/validation_summary.json")
+    if args.last:
+        print("Headline numbers not saved (--last is a partial run)")
+    else:
+        (out / "validation_summary.json").write_text(json.dumps(summary, indent=2))
+        print("Saved headline numbers to outputs/validation_summary.json")
 
-    plot_reliability(tables, out / "reliability_curve.png")
-    print(f"\nWrote {out / 'reliability_curve.png'}")
+    curve = out / f"reliability_curve{tag}.png"
+    plot_reliability(tables, curve)
+    print(f"\nWrote {curve}")
 
 
 if __name__ == "__main__":

@@ -1,32 +1,20 @@
 {
   "tonight": {
-    "Window (UTC)": "20261107T2221 to 20261108T0521",
-    "Hours fitted": 8,
-    "Sensors, last hour": "94 (29 reference)",
-    "Readings, last hour (ug/m3)": "0 to 30",
-    "Learned noise, reference (ug/m3)": "2",
+    "Readings, last hour (ug/m3)": "0 to 7",
+    "Learned noise, reference (ug/m3)": "1",
     "Learned length scale (km)": "1.0",
-    "NowCast estimate on land (ug/m3)": "1 to 10",
-    "95% band half-width (ug/m3)": "+/-1.5 to +/-3.4",
+    "NowCast estimate on land (ug/m3)": "1 to 7",
+    "95% band half-width (ug/m3)": "+/-1.3 to +/-2.8",
     "Squares with a confident label": "100% of 3138",
-    "Most common label": "Good",
-    "Hidden monitors inside 95% band": "97% of 29",
-    "Top site borough mix": "Brooklyn 4, Bronx 4, Manhattan 2",
-    "Seconds to compute": "22.0"
+    "Hidden monitors inside 95% band": "93% of 29"
   },
   "june_7_2023": {
-    "Window (UTC)": "20230607T0700 to 20230607T1800",
-    "Hours fitted": 12,
-    "Sensors, last hour": "22 (22 reference)",
     "Readings, last hour (ug/m3)": "202 to 460",
     "Learned noise, reference (ug/m3)": "64",
     "Learned length scale (km)": "3.0",
     "NowCast estimate on land (ug/m3)": "232 to 345",
     "95% band half-width (ug/m3)": "+/-62.3 to +/-124.6",
     "Squares with a confident label": "3% of 3138",
-    "Most common label": "Very Unhealthy to Hazardous, not enough data",
-    "Hidden monitors inside 95% band": "100% of 22",
-    "Top site borough mix": "Brooklyn 4, Queens 3, Bronx 2, Manhattan 1",
-    "Seconds to compute": "15.6"
+    "Hidden monitors inside 95% band": "100% of 22"
   }
 }

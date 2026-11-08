@@ -1,15 +1,15 @@
 {
-  "snapshot": "snapshot_20261108T052144Z.csv",
+  "snapshot": "snapshot_20261108T063403Z.csv",
   "k": 10,
   "min_spacing_km": 1.0,
   "n_tracts": 2231,
   "picks_shared_with_population_only": 6,
   "band_halfwidth_high_asthma_tracts": [
-    5.42,
-    5.16
+    2.02,
+    1.95
   ],
   "band_halfwidth_other_tracts": [
-    5.3,
-    5.23
+    1.98,
+    1.96
   ]
 }

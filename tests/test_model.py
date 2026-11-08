@@ -33,3 +33,20 @@ def test_uncertainty_grows_away_from_sensors():
     _, near = m.predict(gp, df["lat"].iloc[:1], df["lon"].iloc[:1])
     _, far = m.predict(gp, [40.92], [-74.26])  # bbox corner, far from all sensors
     assert far[0] > near[0]
+
+
+def test_purpleair_offset_is_measured_and_applied():
+    import numpy as np
+    import pandas as pd
+    from sensorgap import model as m
+    rng = np.random.default_rng(0)
+    lat, lon = rng.uniform(40.6, 40.8, 6), rng.uniform(-74.0, -73.85, 6)
+    ref = pd.DataFrame({"lat": lat, "lon": lon, "pm25": 8.0, "noise_class": "reference"})
+    lc = pd.DataFrame({"lat": lat + 0.002, "lon": lon, "pm25": 6.0, "noise_class": "lowcost"})  # ~220 m away, 2 low
+    df = pd.concat([ref, lc], ignore_index=True)
+    off, n = m.lowcost_offset(df)
+    assert n == 6 and abs(off - 2.0) < 1e-9
+    fixed = m.correct_lowcost(df)
+    assert (fixed.loc[fixed["noise_class"] == "lowcost", "pm25"] == 8.0).all()
+    assert (fixed.loc[fixed["noise_class"] == "reference", "pm25"] == 8.0).all()
+    assert m.lowcost_offset(df.iloc[[0, 1, 6, 7]])[0] == 0.0  # too few pairs -> no shift

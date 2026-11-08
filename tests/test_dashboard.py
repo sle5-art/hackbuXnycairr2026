@@ -45,7 +45,7 @@ def test_click_readout_explains_the_label():
     land = D.land_of(d["boroughs"])
     assert D.explain(d, land, 40.7, -73.85) is None  # water
     sure = D.explain(d, land, 40.6, -74.0)  # first cell: band 7.0 to 9.0, inside Good
-    assert "whole band sits inside Good" in sure and "nearest reference monitor" in sure
+    assert "whole band sits inside Good" in sure and "Nearest sensor" in sure
     unsure = D.explain(d, land, 40.8, -73.933)
     assert "No label" in unsure
 
@@ -68,3 +68,16 @@ def test_map_image_keeps_exact_colours():
     out = D.to_web_mercator(img, [[40.49, -74.26], [40.92, -73.70]])
     assert out.dtype == np.uint8
     assert {tuple(px) for px in out.reshape(-1, 4)} == {(126, 0, 35, 170)}
+
+
+def test_colour_scale_is_fixed_not_stretched():
+    # a 0.5 ug/m3 spread on a calm hour must not span the whole colour ramp
+    d = fake()
+    g = D.to_raster(d["labels"], D.land_of(d["boroughs"]))
+    _, cmap = D.layer_image(g, "unsure")
+    assert cmap.vmin == 0 and cmap.vmax == 5.0
+    _, cmap = D.layer_image(g, "pm25")
+    assert cmap.vmin == 0 and cmap.vmax == 35.4
+    g["nowcast"] = g["nowcast"] * 10  # smoke-day values move to a wider, still fixed, scale
+    _, cmap = D.layer_image(g, "pm25")
+    assert cmap.vmax == 125.4

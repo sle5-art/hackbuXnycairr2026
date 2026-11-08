@@ -8,7 +8,7 @@ picks 10 new sensor sites. Then it prints the two days side by side.
 Both days use the same settings, including one widened noise range (see SMOKE_NOISE_GRID below).
 
 Run from the repo root (no internet needed; the smoke-day data ships in data/static/replay_20230607/):
-    python -m app.compare            # add --pause to step through it
+    python -m app.compare            # add --pause to step through it, --all for the full tables
 
 Writes outputs/replay_20230607/: labels_*.csv, placement.csv, map.html (open in a browser)
 """
@@ -84,29 +84,25 @@ def run_day(name, snap_paths, land, tracts, show):
     sites = sites.assign(borough=sites["tract"].str[2:5].map(D.BOROUGH))
 
     stats = {
-        "Window (UTC)": f"{snap_paths[0].stem[9:22]} to {snap_paths[-1].stem[9:22]}",
-        "Hours fitted": len(snaps),
-        "Sensors, last hour": f"{len(last)} ({(last['noise_class'] == 'reference').sum()} reference)",
         "Readings, last hour (ug/m3)": f"{last['pm25'].min():.0f} to {last['pm25'].max():.0f}",
         "Learned noise, reference (ug/m3)": f"{gp.noise_sd_['reference']:g}",
         "Learned length scale (km)": f"{M.describe(gp)['length_scale_km']:.1f}",
         "NowCast estimate on land (ug/m3)": f"{lab['nowcast'].min():.0f} to {lab['nowcast'].max():.0f}",
         "95% band half-width (ug/m3)": f"+/-{lab['halfwidth'].min():g} to +/-{lab['halfwidth'].max():g}",
         "Squares with a confident label": f"{lab['confident'].mean():.0%} of {len(lab)}",
-        "Most common label": lab["label"].value_counts().index[0],
         "Hidden monitors inside 95% band": f"{cover:.0%} of {len(held)}" if len(held) else "n/a",
-        "Top site borough mix": ", ".join(f"{b} {n}" for b, n in sites["borough"].value_counts().items()),
-        "Seconds to compute": f"{time.time() - t0:.1f}",
     }
-    show.say(f"{name}: done in {stats['Seconds to compute']} s")
+    hours = f"{len(snaps)} hour{'s' if len(snaps) > 1 else ''}"
+    show.say(f"{name}: {hours}, {len(last)} sensors in the last hour, done in {time.time() - t0:.1f} s")
     return stats, lab, sites, last, held
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pause", action="store_true")
+    p.add_argument("--all", action="store_true", help="also print the full tables")
     args = p.parse_args()
-    show = Show(args.pause, False)
+    show = Show(args.pause, args.all)
     M.NOISE_GRID = SMOKE_NOISE_GRID
 
     land = D.land_of(D.load()["boroughs"])
@@ -120,7 +116,7 @@ def main():
               "a map that only works on clean nights isn't worth much; test it on NYC's worst air day")
     show.say("Tonight: the hourly collector's snapshots. June 7, 2023: NYC Health + AirNow archives,")
     show.say("reference monitors only, 12 hours ending 18:00 UTC (2 pm in New York), when the smoke peaked.")
-    show.say(f"Same settings for both days. Noise levels may range {SMOKE_NOISE_GRID[0]}-{SMOKE_NOISE_GRID[-1]} ug/m3.")
+    show.say("Same code and settings for both days.")
     show.say("")
     a, lab_a, sites_a, _, _ = run_day("Tonight", tonight_paths, land, tracts, show)
     b, lab_b, sites_b, last_b, held_b = run_day("June 7, 2023", smoke_paths, land, tracts, show)
@@ -135,36 +131,36 @@ def main():
         show.say(f"  {n:5d} squares  {name}")
     show.say("")
     show.say("EPA 2024 breakpoints: Unhealthy 55.5-125.4, Very Unhealthy 125.5-225.4, Hazardous 225.5+ ug/m3")
-    show.say("NowCast sits below the 2 pm readings because the morning was 50-140 ug/m3: EPA's 12-hour weighting")
-    show.say("leans hard on the latest hours when air changes fast, but doesn't jump all the way in one hour.")
+    if show.all:
+        show.say("NowCast sits below the 2 pm readings because the morning was 50-140 ug/m3: EPA's 12-hour weighting")
+        show.say("leans hard on the latest hours when air changes fast, but doesn't jump all the way in one hour.")
     lab_b = lab_b.join(nearest(lab_b, last_b))
     cols = ["lat", "lon", "nowcast", "lo95", "hi95", "halfwidth", "label", "nearest_sensor_km"]
-    show.say("")
-    show.say("Least certain squares:")
-    show.table(lab_b.sort_values("halfwidth", ascending=False)[cols], rows=5)
-    show.say("")
-    show.say("Most certain squares:")
-    show.table(lab_b.sort_values("halfwidth")[cols], rows=5)
+    if show.all:
+        show.say("")
+        show.table(lab_b.sort_values("halfwidth", ascending=False)[cols])
 
     show.step("HONESTY on the smoke day",
               "hide each monitor (and anything within 1 km), refit without it, and check the band caught it")
     if len(held_b):
         held_b = held_b.assign(name=held_b["site_id"].map(D.SITE_NAMES).fillna(""),
                                inside=np.where(held_b["z"].abs() <= 1.96, "yes", "NO"))
-        show.table(held_b[["site_id", "source", "observed", "predicted", "pred_sd", "inside"]]
-                   .round(1).sort_values("observed", ascending=False), rows=30)
-        show.say("")
         share = (held_b["inside"] == "yes").mean()
         show.say(f"{share:.0%} of {len(held_b)} hidden monitors fell inside their 95% band at the peak hour.")
         show.say("About 95% is the target: much lower = bands too narrow (overconfident), 100% = a bit wide (cautious).")
-        show.say("Quick version: noise learned once for the hour. The strict version is python -m sensorgap.validate --strict.")
+        if show.all:
+            show.say("")
+            show.table(held_b[["site_id", "source", "observed", "predicted", "pred_sd", "inside"]]
+                       .round(1).sort_values("observed", ascending=False))
 
     show.step("WHERE THE NEW SENSORS GO on each day",
               "placement depends on where sensors are AND on how far a reading reaches that day")
     both = sites_a[["rank", "borough", "tract"]].merge(sites_b[["rank", "borough", "tract"]], on="rank",
                                                       suffixes=("_tonight", "_smoke"))
-    show.table(both, rows=10)
-    show.say(f"{len(set(sites_a['tract']) & set(sites_b['tract']))} of 10 sites are the same on both days.")
+    if show.all:
+        show.table(both)
+    show.say(f"{len(set(sites_a['tract']) & set(sites_b['tract']))} of the 10 recommended sites are the same on both days:")
+    show.say("in smoke a reading only reaches about half as far, so the gaps worth filling move.")
 
     REPLAY_OUT.mkdir(parents=True, exist_ok=True)
     lab_b.to_csv(REPLAY_OUT / f"labels_{smoke_paths[-1].stem[9:]}.csv", index=False)
